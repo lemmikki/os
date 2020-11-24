@@ -26,5 +26,6 @@ RUN apt-get update \
     && cat /etc/ssh/sshd_config > /etc/ssh/sshd_config.tpl \
     && cat /etc/ssh/sshd_config.append.tpl >> /etc/ssh/sshd_config.tpl \
     && rm -f /etc/ssh/sshd_config.append.tpl /etc/ssh/sshd_config \
-    && echo > /etc/motd \
+    && echo > /etc/motd
+
 ENTRYPOINT ["/usr/bin/ros", "entrypoint"]
