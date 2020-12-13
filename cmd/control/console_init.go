@@ -157,14 +157,17 @@ func consoleInitFunc() error {
 	// create placeholder for docker-compose binary
 	const ComposePlaceholder = `
 #!/bin/bash
-echo 'System service "docker-compose" is not enabled'
-echo
-echo 'You can enable it with commands:'
-echo 'sudo ros service enable docker-compose'
-echo 'sudo ros service up docker-compose'
+echo 'INFO: System service "docker-compose" is not yet enabled'
+sudo ros service enable docker-compose
+sudo ros service up docker-compose
 `
-	if _, err := os.Stat("/var/lib/rancher/engine/docker-compose"); os.IsNotExist(err) {
-		if err := ioutil.WriteFile("/var/lib/rancher/engine/docker-compose", []byte(ComposePlaceholder), 0755); err != nil {
+	if _, err := os.Stat("/var/lib/rancher/compose"); os.IsNotExist(err) {
+		if err := os.MkdirAll("/var/lib/rancher/compose", 0555); err != nil {
+			log.Error(err)
+		}
+	}
+	if _, err := os.Stat("/var/lib/rancher/compose/docker-compose"); os.IsNotExist(err) {
+		if err := ioutil.WriteFile("/var/lib/rancher/compose/docker-compose", []byte(ComposePlaceholder), 0755); err != nil {
 			log.Error(err)
 		}
 	}
