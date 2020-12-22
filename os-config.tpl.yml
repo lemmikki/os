@@ -7,12 +7,11 @@ rancher:
     REGISTRY_DOMAIN: "docker.io"
   defaults:
     hostname: {{.HOSTNAME_DEFAULT}}
+    docker:
     {{if eq "amd64" .ARCH -}}
-    docker:
-      engine: {{.USER_DOCKER_ENGINE_VERSION}}
+      engine: {{.DOCKER_ENGINE_VERSION}}
     {{else -}}
-    docker:
-      engine: {{.USER_DOCKER_ENGINE_VERSION}}
+      engine: {{.DOCKER_ENGINE_VERSION}}
     {{end -}}
     network:
       dhcp_timeout: 10
@@ -119,8 +118,8 @@ rancher:
       read_only: true
       volumes:
       - /usr/bin/ros:/usr/bin/ros:ro
-      - /usr/bin/system-docker:/usr/bin/system-docker:ro
-      - /usr/bin/system-docker-runc:/usr/bin/system-docker-runc:ro
+      - /usr/bin/docker:/usr/bin/docker:ro
+      - /usr/bin/runc:/usr/bin/runc:ro
     system-volumes:
       image: {{.OS_REPO}}/os-base:{{.VERSION}}{{.SUFFIX}}
       command: echo
@@ -161,7 +160,7 @@ rancher:
       privileged: true
       read_only: true
       volumes:
-      - /var/lib/user-docker:/var/lib/docker
+      - /var/lib/user-docker:/var/lib/docker:rshared
       - /var/lib/m-user-docker:/var/lib/m-user-docker
     user-volumes:
       image: {{.OS_REPO}}/os-base:{{.VERSION}}{{.SUFFIX}}
@@ -188,8 +187,8 @@ rancher:
       privileged: true
       read_only: true
       volumes:
-      - /media:/media:shared
-      - /mnt:/mnt:shared
+      - /media:/media:rshared
+      - /mnt:/mnt:rshared
     all-volumes:
       image: {{.OS_REPO}}/os-base:{{.VERSION}}{{.SUFFIX}}
       command: echo
@@ -256,8 +255,8 @@ rancher:
       volumes_from:
       - all-volumes
       volumes:
-      - /media:/media:shared
-      - /mnt:/mnt:shared
+      - /media:/media:rshared
+      - /mnt:/mnt:rshared
     logrotate:
       image: {{.OS_REPO}}/os-logrotate:{{.VERSION}}{{.SUFFIX}}
       command: /usr/sbin/logrotate -v /etc/logrotate.conf
@@ -370,9 +369,9 @@ rancher:
       - system-volumes
     docker:
       {{if eq "amd64" .ARCH -}}
-      image: {{.OS_REPO}}/os-docker:{{.USER_DOCKER_VERSION}}{{.SUFFIX}}
+      image: {{.OS_REPO}}/os-docker:{{.DOCKER_VERSION}}{{.SUFFIX}}
       {{else -}}
-      image: {{.OS_REPO}}/os-docker:{{.USER_DOCKER_VERSION}}{{.SUFFIX}}
+      image: {{.OS_REPO}}/os-docker:{{.DOCKER_VERSION}}{{.SUFFIX}}
       {{end -}}
       command: ros user-docker
       environment:
@@ -392,7 +391,7 @@ rancher:
       - all-volumes
       volumes:
       - /sys:/host/sys
-      - /var/lib/system-docker:/var/lib/system-docker:shared
+      - /var/lib/system-docker:/var/lib/system-docker:rshared
   system_docker:
     exec: true
     storage_driver: overlay2
@@ -414,9 +413,9 @@ rancher:
     policy: download
   docker:
     {{if eq "amd64" .ARCH -}}
-    engine: {{.USER_DOCKER_ENGINE_VERSION}}
+    engine: {{.DOCKER_ENGINE_VERSION}}
     {{else -}}
-    engine: {{.USER_DOCKER_ENGINE_VERSION}}
+    engine: {{.DOCKER_ENGINE_VERSION}}
     {{end -}}
     group: docker
     host: ["unix:///var/run/docker.sock"]

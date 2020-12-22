@@ -172,9 +172,10 @@ func editSyslinux(c *cli.Context) error {
 		return errors.New("global.cfg can not be found")
 	}
 
-	cmd := exec.Command("system-docker", "run", "--rm", "-it",
+	cmd := exec.Command("docker", "run", "--rm", "-it",
 		"-v", "/:/host",
 		"-w", "/host",
+		"-H", "unix:///var/run/system-docker.sock",
 		"--entrypoint=nano",
 		"burmilla/os-console:"+config.Version,
 		"boot/global.cfg")

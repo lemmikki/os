@@ -1,5 +1,4 @@
-FROM ubuntu:bionic
-# FROM arm64=arm64v8/ubuntu:bionic
+FROM ubuntu:20.04
 
 # get the apt-cacher proxy set
 ARG APTPROXY=
@@ -7,6 +6,7 @@ ARG APTPROXY=
 RUN echo "Acquire::http { Proxy \"$APTPROXY\"; };" >> /etc/apt/apt.conf.d/01proxy \
     && cat /etc/apt/apt.conf.d/01proxy \
     && apt-get update \
+    && export DEBIAN_FRONTEND=noninteractive \
     && apt-get install -y --no-install-recommends \
         build-essential \
         ca-certificates \
@@ -23,7 +23,7 @@ RUN echo "Acquire::http { Proxy \"$APTPROXY\"; };" >> /etc/apt/apt.conf.d/01prox
         libmount-dev \
         libselinux1-dev \
         locales \
-        module-init-tools \
+        kmod \
         mtools \
         openssh-client \
         pkg-config \
@@ -53,7 +53,7 @@ WORKDIR ${DAPPER_SOURCE}
 ARG DAPPER_HOST_ARCH=amd64
 ARG HOST_ARCH=${DAPPER_HOST_ARCH}
 ARG ARCH=${HOST_ARCH}
-
+ARG DOCKER_BUILDKIT=${DOCKER_BUILDKIT}
 ARG OS_REPO=burmilla
 ARG HOSTNAME_DEFAULT=burmilla
 ARG DISTRIB_ID=BurmillaOS
@@ -63,13 +63,12 @@ ARG SELINUX_POLICY_URL=https://github.com/burmilla/refpolicy/releases/download/v
 ARG KERNEL_VERSION=5.10.1-burmilla
 ARG KERNEL_URL_amd64=https://github.com/burmilla/os-kernel/releases/download/v${KERNEL_VERSION}/linux-${KERNEL_VERSION}-x86.tar.gz
 ARG KERNEL_URL_arm64=https://github.com/burmilla/os-kernel/releases/download/v${KERNEL_VERSION}/linux-${KERNEL_VERSION}-arm64.tar.gz
-ARG KERNEL_URL_mips64el=https://github.com/burmilla/os-kernel/releases/download/v${KERNEL_VERSION}/linux-${KERNEL_VERSION}-mips64el.tar.gz
 
-ARG BUILD_DOCKER_URL_amd64=https://get.docker.com/builds/Linux/x86_64/docker-1.10.3
-ARG BUILD_DOCKER_URL_arm64=https://github.com/burmilla/docker/releases/download/v1.10.3-ros1/docker-1.10.3_arm64
-ARG BUILD_DOCKER_URL_mips64el=https://github.com/burmilla/docker/releases/download/v1.10.3-ros1/docker-1.10.3_mips64el
+ARG DOCKER_VERSION=20.10.1
+ARG DOCKER_URL_amd64=https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VERSION}.tgz
+ARG DOCKER_URL_arm64=https://download.docker.com/linux/static/stable/aarch64/docker-${DOCKER_VERSION}.tgz
 
-ARG OS_RELEASES_YML=https://raw.githubusercontent.com/burmilla/releases/v2.0.x
+ARG OS_RELEASES_YML=https://raw.githubusercontent.com/burmilla/releases/v1.9.x
 
 ARG OS_SERVICES_REPO=https://raw.githubusercontent.com/${OS_REPO}/os-services
 ARG IMAGE_NAME=${OS_REPO}/os
@@ -78,40 +77,33 @@ ARG OS_CONSOLE=default
 ARG OS_AUTOFORMAT=false
 ARG OS_FIRMWARE=true
 
-ARG OS_BASE_URL_amd64=https://github.com/burmilla/os-base/releases/download/v2020.02.8-1/os-base_amd64.tar.xz
-ARG OS_BASE_URL_arm64=https://github.com/burmilla/os-base/releases/download/v2020.02.8-1/os-base_arm64.tar.xz
-ARG OS_BASE_URL_mips64el=https://github.com/burmilla/os-base/releases/download/v2020.02.8-1/os-base_mips64el.tar.xz
+ARG OS_VERSION=v2020.02.8-1
+ARG OS_BASE_URL_amd64=https://github.com/burmilla/os-base/releases/download/${OS_VERSION}/os-base_amd64.tar.xz
+ARG OS_BASE_URL_arm64=https://github.com/burmilla/os-base/releases/download/${OS_VERSION}/os-base_arm64.tar.xz
 
-ARG OS_INITRD_BASE_URL_amd64=https://github.com/burmilla/os-initrd-base/releases/download/v2020.02.8-1/os-initrd-base-amd64.tar.gz
-ARG OS_INITRD_BASE_URL_arm64=https://github.com/burmilla/os-initrd-base/releases/download/v2020.02.8-1/os-initrd-base-arm64.tar.gz
-ARG OS_INITRD_BASE_URL_mips64el=https://github.com/burmilla/os-initrd-base/releases/download/v2020.02.8-1/os-initrd-base-mips64el.tar.gz
-
-ARG SYSTEM_DOCKER_VERSION=17.06-ros6
-ARG SYSTEM_DOCKER_URL_amd64=https://github.com/burmilla/os-system-docker/releases/download/${SYSTEM_DOCKER_VERSION}/docker-amd64-${SYSTEM_DOCKER_VERSION}.tgz
-ARG SYSTEM_DOCKER_URL_arm64=https://github.com/burmilla/os-system-docker/releases/download/${SYSTEM_DOCKER_VERSION}/docker-arm64-${SYSTEM_DOCKER_VERSION}.tgz
-ARG SYSTEM_DOCKER_URL_mips64el=https://github.com/burmilla/os-system-docker/releases/download/${SYSTEM_DOCKER_VERSION}/docker-mips64el-${SYSTEM_DOCKER_VERSION}.tgz
-
-ARG USER_DOCKER_VERSION=20.10.1
-ARG USER_DOCKER_ENGINE_VERSION=docker-${USER_DOCKER_VERSION}
+ARG INITRD_VERSION=v2020.02.8-1
+ARG OS_INITRD_BASE_URL_amd64=https://github.com/burmilla/os-initrd-base/releases/download/${INITRD_VERSION}/os-initrd-base-amd64.tar.gz
+ARG OS_INITRD_BASE_URL_arm64=https://github.com/burmilla/os-initrd-base/releases/download/${INITRD_VERSION}/os-initrd-base-arm64.tar.gz
 
 ARG AZURE_SERVICE=false
 ARG PROXMOXVE_SERVICE=false
 ######################################################
-
-# Set up environment and export all ARGS as ENV
 ENV ARCH=${ARCH} \
     HOST_ARCH=${HOST_ARCH} \
-    XZ_DEFAULTS="-T0"
-
-ENV BUILD_DOCKER_URL=BUILD_DOCKER_URL_${ARCH} \
-    BUILD_DOCKER_URL_amd64=${BUILD_DOCKER_URL_amd64} \
-    BUILD_DOCKER_URL_arm64=${BUILD_DOCKER_URL_arm64} \
+    DOCKER_VERSION=${DOCKER_VERSION} \
+    XZ_DEFAULTS="-T0" \
+    DOCKER_URL=DOCKER_URL_${ARCH} \
+    DOCKER_URL_amd64=${DOCKER_URL_amd64} \
+    DOCKER_URL_arm64=${DOCKER_URL_arm64} \
+    DOCKER_ENGINE_VERSION="engine-${DOCKER_VERSION}" \
     DAPPER_HOST_ARCH=${DAPPER_HOST_ARCH} \
+    DAPPER_BUILD_FLAGS=${DAPPER_BUILD_FLAGS} \
     DISTRIB_ID=${DISTRIB_ID} \
     DOWNLOADS=/usr/src/downloads \
     GOPATH=/go \
     GO_VERSION=1.8.5 \
     GOARCH=$ARCH \
+    DOCKER_BUILDKIT=${DOCKER_BUILDKIT:-1} \
     HOSTNAME_DEFAULT=${HOSTNAME_DEFAULT} \
     IMAGE_NAME=${IMAGE_NAME} \
     KERNEL_VERSION=${KERNEL_VERSION} \
@@ -132,11 +124,6 @@ ENV BUILD_DOCKER_URL=BUILD_DOCKER_URL_${ARCH} \
     OS_FIRMWARE=${OS_FIRMWARE} \
     REPO_VERSION=master \
     SELINUX_POLICY_URL=${SELINUX_POLICY_URL} \
-    SYSTEM_DOCKER_URL=SYSTEM_DOCKER_URL_${ARCH} \
-    SYSTEM_DOCKER_URL_amd64=${SYSTEM_DOCKER_URL_amd64} \
-    SYSTEM_DOCKER_URL_arm64=${SYSTEM_DOCKER_URL_arm64} \
-    USER_DOCKER_VERSION=${USER_DOCKER_VERSION} \
-    USER_DOCKER_ENGINE_VERSION=${USER_DOCKER_ENGINE_VERSION} \
     AZURE_SERVICE=${AZURE_SERVICE} \
     PROXMOXVE_SERVICE=${PROXMOXVE_SERVICE}
 ENV PATH=${GOPATH}/bin:/usr/local/go/bin:$PATH
@@ -161,7 +148,9 @@ RUN mkdir -p ${GOPATH}/src/golang.org/x && cd ${GOPATH}/src/golang.org/x/ && git
     cd tools && git checkout 6adeb8aab2ded9eb693b831d5fd090c10a6ebdfa -b temp && go get golang.org/x/lint/golint
 
 # Install Host Docker
-RUN curl -fL ${!BUILD_DOCKER_URL} > /usr/bin/docker && \
+RUN curl -O ${!DOCKER_URL} && \
+    tar xzvf docker-${DOCKER_VERSION}.tgz && \
+    cp docker/docker /usr/bin/docker && \
     chmod +x /usr/bin/docker
 
 # Install dapper

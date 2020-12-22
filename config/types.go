@@ -25,7 +25,7 @@ const (
 	SystemImages     = "images-system.tar"
 	UserImages       = "images-user.tar"
 	Debug            = false
-	SystemDockerBin  = "/usr/bin/system-dockerd"
+	SystemDockerBin  = "/usr/bin/dockerd"
 	DefaultDind      = "burmilla/os-dind:17.12.1"
 
 	DetachLabel        = "io.rancher.os.detach"

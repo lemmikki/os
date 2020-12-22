@@ -29,9 +29,7 @@ ln -s usr/bin/ros              ${INITRD_DIR}/init
 ln -s bin                      ${INITRD_DIR}/usr/sbin
 ln -s usr/sbin                 ${INITRD_DIR}/sbin
 
-curl -SL ${!SYSTEM_DOCKER_URL} | tar --strip-components=1 -xzvf - -C ${INITRD_DIR}/usr/bin/
-# we have diabled the user-proxy so we get rid of system-docker-proxy
-rm -f ${INITRD_DIR}/usr/bin/system-docker-proxy
+curl -SL ${!DOCKER_URL} | tar --strip-components=1 -xzvf - -C ${INITRD_DIR}/usr/bin/
 
 cat <<HERE > ${INITRD_DIR}/usr/share/ros/os-release
 NAME="BurmillaOS"
@@ -89,11 +87,6 @@ esac
 pushd ${INITRD_DIR}/usr/etc
 ln -s ../share/ros/os-release .
 popd
-
-# Support upgrades from old persistent consoles that bind mount these
-touch ${INITRD_DIR}/usr/bin/docker-containerd
-touch ${INITRD_DIR}/usr/bin/docker-containerd-shim
-touch ${INITRD_DIR}/usr/bin/docker
 
 if [ -e ${DOWNLOADS}/policy.29 ]; then
     mkdir -p ${INITRD_DIR}/usr/etc/selinux/ros/policy/

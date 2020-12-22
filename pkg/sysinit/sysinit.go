@@ -76,7 +76,7 @@ func loadImages(cfg *config.CloudConfig, bootstrap bool) (*config.CloudConfig, e
 		// client.ImageLoad is an asynchronous operation
 		// To ensure the order of execution, use cmd instead of it
 		log.Infof("Loading images from %s", archive)
-		cmd := exec.Command("/usr/bin/system-docker", "load", "-q", "-i", archive)
+		cmd := exec.Command("/usr/bin/docker", "-H", "unix:///var/run/system-docker.sock", "load", "-q", "-i", archive)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			log.Fatalf("FATAL: Error loading images from %s (%v)\n%s ", archive, err, out)
 		}
