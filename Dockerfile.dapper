@@ -3,9 +3,12 @@ FROM ubuntu:bionic
 
 # get the apt-cacher proxy set
 ARG APTPROXY=
+ARG APT_ARCHIVE_SOURCE="archive.ubuntu.com"
 
 RUN echo "Acquire::http { Proxy \"$APTPROXY\"; };" >> /etc/apt/apt.conf.d/01proxy \
     && cat /etc/apt/apt.conf.d/01proxy \
+    && sed -i "s|archive.ubuntu.com|${APT_ARCHIVE_SOURCE}|" /etc/apt/sources.list \
+    && cat /etc/apt/sources.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
@@ -111,7 +114,7 @@ ENV BUILD_DOCKER_URL=BUILD_DOCKER_URL_${ARCH} \
     DISTRIB_ID=${DISTRIB_ID} \
     DOWNLOADS=/usr/src/downloads \
     GOPATH=/go \
-    GO_VERSION=1.15.8 \
+    GO_VERSION=1.16.3 \
     GOARCH=$ARCH \
     HOSTNAME_DEFAULT=${HOSTNAME_DEFAULT} \
     IMAGE_NAME=${IMAGE_NAME} \
