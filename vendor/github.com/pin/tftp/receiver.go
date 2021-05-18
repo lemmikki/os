@@ -24,6 +24,7 @@ type IncomingTransfer interface {
 }
 
 func (r *receiver) RemoteAddr() net.UDPAddr { return *r.addr }
+func (r *receiver) LocalIP() net.IP         { return r.localIP }
 
 func (r *receiver) Size() (n int64, ok bool) {
 	if r.opts != nil {
@@ -39,20 +40,28 @@ func (r *receiver) Size() (n int64, ok bool) {
 }
 
 type receiver struct {
-	send     []byte
-	receive  []byte
-	addr     *net.UDPAddr
-	tid      int
-	conn     *net.UDPConn
-	block    uint16
-	retry    *backoff
-	timeout  time.Duration
-	retries  int
-	l        int
-	autoTerm bool
-	dally    bool
-	mode     string
-	opts     options
+	send           []byte
+	receive        []byte
+	addr           *net.UDPAddr
+	filename       string
+	localIP        net.IP
+	tid            int
+	conn           connection
+	block          uint16
+	retry          *backoff
+	timeout        time.Duration
+	retries        int
+	l              int
+	autoTerm       bool
+	dally          bool
+	mode           string
+	opts           options
+	singlePort     bool
+	maxBlockLen    int
+	hook           Hook
+	startTime      time.Time
+	datagramsSent  int
+	datagramsAcked int
 }
 
 func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
@@ -78,7 +87,6 @@ func (r *receiver) WriteTo(w io.Writer) (n int64, err error) {
 			if r.l < len(r.receive) {
 				if r.autoTerm {
 					r.terminate()
-					r.conn.Close()
 				}
 				return n, nil
 			}
@@ -125,10 +133,14 @@ func (r *receiver) setBlockSize(blksize string) error {
 		return err
 	}
 	if n < 512 {
-		return fmt.Errorf("blkzise too small: %d", n)
+		return fmt.Errorf("blksize too small: %d", n)
 	}
 	if n > 65464 {
 		return fmt.Errorf("blksize too large: %d", n)
+	}
+	if r.maxBlockLen > 0 && n > r.maxBlockLen {
+		n = r.maxBlockLen
+		r.opts["blksize"] = strconv.Itoa(n)
 	}
 	r.receive = make([]byte, n+4)
 	return nil
@@ -147,16 +159,17 @@ func (r *receiver) receiveWithRetry(l int) (int, *net.UDPAddr, error) {
 }
 
 func (r *receiver) receiveDatagram(l int) (int, *net.UDPAddr, error) {
-	err := r.conn.SetReadDeadline(time.Now().Add(r.timeout))
+	err := r.conn.setDeadline(r.timeout)
 	if err != nil {
 		return 0, nil, err
 	}
-	_, err = r.conn.WriteToUDP(r.send[:l], r.addr)
+	err = r.conn.sendTo(r.send[:l], r.addr)
 	if err != nil {
 		return 0, nil, err
 	}
+	r.datagramsSent++
 	for {
-		c, addr, err := r.conn.ReadFromUDP(r.receive)
+		c, addr, err := r.conn.readFrom(r.receive)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -171,6 +184,7 @@ func (r *receiver) receiveDatagram(l int) (int, *net.UDPAddr, error) {
 		switch p := p.(type) {
 		case pDATA:
 			if p.block() == r.block {
+				r.datagramsAcked++
 				return c, addr, nil
 			}
 		case pOACK:
@@ -201,6 +215,15 @@ func (r *receiver) receiveDatagram(l int) (int, *net.UDPAddr, error) {
 }
 
 func (r *receiver) terminate() error {
+	if r.conn == nil {
+		return nil
+	}
+	defer func() {
+		if r.hook != nil {
+			r.hook.OnSuccess(r.buildTransferStats())
+		}
+		r.conn.close()
+	}()
 	binary.BigEndian.PutUint16(r.send[2:4], r.block)
 	if r.dally {
 		for i := 0; i < 3; i++ {
@@ -210,25 +233,40 @@ func (r *receiver) terminate() error {
 			}
 		}
 		return fmt.Errorf("dallying termination failed")
-	} else {
-		_, err := r.conn.WriteToUDP(r.send[:4], r.addr)
-		if err != nil {
-			return err
-		}
+	}
+	err := r.conn.sendTo(r.send[:4], r.addr)
+	if err != nil {
+		return err
 	}
 	return nil
+}
+
+func (r *receiver) buildTransferStats() TransferStats {
+	return TransferStats{
+		RemoteAddr:     r.addr.IP,
+		Filename:       r.filename,
+		Tid:            r.tid,
+		Mode:           r.mode,
+		Opts:           r.opts,
+		Duration:       time.Now().Sub(r.startTime),
+		DatagramsSent:  r.datagramsSent,
+		DatagramsAcked: r.datagramsAcked,
+	}
 }
 
 func (r *receiver) abort(err error) error {
 	if r.conn == nil {
 		return nil
 	}
+	if r.hook != nil {
+		r.hook.OnFailure(r.buildTransferStats(), err)
+	}
 	n := packERROR(r.send, 1, err.Error())
-	_, err = r.conn.WriteToUDP(r.send[:n], r.addr)
+	err = r.conn.sendTo(r.send[:n], r.addr)
 	if err != nil {
 		return err
 	}
-	r.conn.Close()
+	r.conn.close()
 	r.conn = nil
 	return nil
 }

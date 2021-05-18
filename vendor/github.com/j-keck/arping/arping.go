@@ -65,6 +65,7 @@ import (
 	"net"
 	"os"
 	"time"
+	"fmt"
 )
 
 var (
@@ -77,6 +78,10 @@ var (
 
 // Ping sends an arp ping to 'dstIP'
 func Ping(dstIP net.IP) (net.HardwareAddr, time.Duration, error) {
+	if err := validateIP(dstIP); err != nil {
+		return nil, 0, err
+	}
+
 	iface, err := findUsableInterfaceForNetwork(dstIP)
 	if err != nil {
 		return nil, 0, err
@@ -86,6 +91,10 @@ func Ping(dstIP net.IP) (net.HardwareAddr, time.Duration, error) {
 
 // PingOverIfaceByName sends an arp ping over interface name 'ifaceName' to 'dstIP'
 func PingOverIfaceByName(dstIP net.IP, ifaceName string) (net.HardwareAddr, time.Duration, error) {
+	if err := validateIP(dstIP); err != nil {
+		return nil, 0, err
+	}
+
 	iface, err := net.InterfaceByName(ifaceName)
 	if err != nil {
 		return nil, 0, err
@@ -95,6 +104,10 @@ func PingOverIfaceByName(dstIP net.IP, ifaceName string) (net.HardwareAddr, time
 
 // PingOverIface sends an arp ping over interface 'iface' to 'dstIP'
 func PingOverIface(dstIP net.IP, iface net.Interface) (net.HardwareAddr, time.Duration, error) {
+	if err := validateIP(dstIP); err != nil {
+		return nil, 0, err
+	}
+
 	srcMac := iface.HardwareAddr
 	srcIP, err := findIPInNetworkFromIface(dstIP, iface)
 	if err != nil {
@@ -114,7 +127,7 @@ func PingOverIface(dstIP net.IP, iface net.Interface) (net.HardwareAddr, time.Du
 		duration time.Duration
 		err      error
 	}
-	pingResultChan := make(chan PingResult)
+	pingResultChan := make(chan PingResult, 1)
 
 	go func() {
 		// send arp request
@@ -149,8 +162,54 @@ func PingOverIface(dstIP net.IP, iface net.Interface) (net.HardwareAddr, time.Du
 	case pingResult := <-pingResultChan:
 		return pingResult.mac, pingResult.duration, pingResult.err
 	case <-time.After(timeout):
+		deinitialize()
 		return nil, 0, ErrTimeout
 	}
+}
+
+// GratuitousArp sends an gratuitous arp from 'srcIP'
+func GratuitousArp(srcIP net.IP) error {
+	if err := validateIP(srcIP); err != nil {
+		return err
+	}
+
+	iface, err := findUsableInterfaceForNetwork(srcIP)
+	if err != nil {
+		return err
+	}
+	return GratuitousArpOverIface(srcIP, *iface)
+}
+
+// GratuitousArpOverIfaceByName sends an gratuitous arp over interface name 'ifaceName' from 'srcIP'
+func GratuitousArpOverIfaceByName(srcIP net.IP, ifaceName string) error {
+	if err := validateIP(srcIP); err != nil {
+		return err
+	}
+
+	iface, err := net.InterfaceByName(ifaceName)
+	if err != nil {
+		return err
+	}
+	return GratuitousArpOverIface(srcIP, *iface)
+}
+
+// GratuitousArpOverIface sends an gratuitous arp over interface 'iface' from 'srcIP'
+func GratuitousArpOverIface(srcIP net.IP, iface net.Interface) error {
+	if err := validateIP(srcIP); err != nil {
+		return err
+	}
+
+	srcMac := iface.HardwareAddr
+	broadcastMac := []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+	request := newArpRequest(srcMac, srcIP, broadcastMac, srcIP)
+
+	if err := initialize(iface); err != nil {
+		return err
+	}
+	defer deinitialize()
+	verboseLog.Printf("gratuitous arp over interface: '%s' with address: '%s'\n", iface.Name, srcIP)
+	_, err := send(request)
+	return err
 }
 
 // EnableVerboseLog enables verbose logging on stdout
@@ -161,4 +220,12 @@ func EnableVerboseLog() {
 // SetTimeout sets ping timeout
 func SetTimeout(t time.Duration) {
 	timeout = t
+}
+
+func validateIP(ip net.IP) error {
+	// ip must be a valid V4 address
+	if len(ip.To4()) != net.IPv4len {
+		return fmt.Errorf("not a valid v4 Address: %s", ip)
+	}
+	return nil
 }

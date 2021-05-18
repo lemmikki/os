@@ -31,20 +31,29 @@ type OutgoingTransfer interface {
 }
 
 type sender struct {
-	conn    *net.UDPConn
-	addr    *net.UDPAddr
-	tid     int
-	send    []byte
-	receive []byte
-	retry   *backoff
-	timeout time.Duration
-	retries int
-	block   uint16
-	mode    string
-	opts    options
+	conn           connection
+	addr           *net.UDPAddr
+	filename       string
+	localIP        net.IP
+	tid            int
+	send           []byte
+	sendA          senderAnticipate
+	receive        []byte
+	retry          *backoff
+	timeout        time.Duration
+	retries        int
+	block          uint16
+	maxBlockLen    int
+	mode           string
+	opts           options
+	hook           Hook
+	startTime      time.Time
+	datagramsSent  int
+	datagramsAcked int
 }
 
 func (s *sender) RemoteAddr() net.UDPAddr { return *s.addr }
+func (s *sender) LocalIP() net.IP         { return s.localIP }
 
 func (s *sender) SetSize(n int64) {
 	if s.opts != nil {
@@ -87,6 +96,9 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 			return 0, err
 		}
 	}
+	if s.sendA.enabled { /* senderAnticipate */
+		return readFromAnticipate(s, r)
+	}
 	s.block = 1 // start data transmission with block 1
 	binary.BigEndian.PutUint16(s.send[0:2], opDATA)
 	for {
@@ -100,7 +112,10 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 					s.abort(err)
 					return n, err
 				}
-				s.conn.Close()
+				if s.hook != nil {
+					s.hook.OnSuccess(s.buildTransferStats())
+				}
+				s.conn.close()
 				return n, nil
 			}
 			s.abort(err)
@@ -113,7 +128,10 @@ func (s *sender) ReadFrom(r io.Reader) (n int64, err error) {
 			return n, err
 		}
 		if l < len(s.send)-4 {
-			s.conn.Close()
+			if s.hook != nil {
+				s.hook.OnSuccess(s.buildTransferStats())
+			}
+			s.conn.close()
 			return n, nil
 		}
 		s.block++
@@ -155,12 +173,19 @@ func (s *sender) setBlockSize(blksize string) error {
 		return err
 	}
 	if n < 512 {
-		return fmt.Errorf("blkzise too small: %d", n)
+		return fmt.Errorf("blksize too small: %d", n)
 	}
 	if n > 65464 {
 		return fmt.Errorf("blksize too large: %d", n)
 	}
+	if s.maxBlockLen > 0 && n > s.maxBlockLen {
+		n = s.maxBlockLen
+		s.opts["blksize"] = strconv.Itoa(n)
+	}
 	s.send = make([]byte, n+4)
+	if s.sendA.enabled { /* senderAnticipate */
+		sendAInit(&s.sendA, uint(n+4), s.sendA.winsz)
+	}
 	return nil
 }
 
@@ -177,19 +202,21 @@ func (s *sender) sendWithRetry(l int) (*net.UDPAddr, error) {
 }
 
 func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
-	err := s.conn.SetReadDeadline(time.Now().Add(s.timeout))
+	err := s.conn.setDeadline(s.timeout)
 	if err != nil {
 		return nil, err
 	}
-	_, err = s.conn.WriteToUDP(s.send[:l], s.addr)
+	err = s.conn.sendTo(s.send[:l], s.addr)
 	if err != nil {
 		return nil, err
 	}
+	s.datagramsSent++
 	for {
-		n, addr, err := s.conn.ReadFromUDP(s.receive)
+		n, addr, err := s.conn.readFrom(s.receive)
 		if err != nil {
 			return nil, err
 		}
+
 		if !addr.IP.Equal(s.addr.IP) || (s.tid != 0 && addr.Port != s.tid) {
 			continue
 		}
@@ -201,6 +228,7 @@ func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
 		switch p := p.(type) {
 		case pACK:
 			if p.block() == s.block {
+				s.datagramsAcked++
 				return addr, nil
 			}
 		case pOACK:
@@ -228,16 +256,33 @@ func (s *sender) sendDatagram(l int) (*net.UDPAddr, error) {
 	}
 }
 
+func (s *sender) buildTransferStats() TransferStats {
+	return TransferStats{
+		RemoteAddr:              s.addr.IP,
+		Filename:                s.filename,
+		Tid:                     s.tid,
+		SenderAnticipateEnabled: s.sendA.enabled,
+		Mode:                    s.mode,
+		Opts:                    s.opts,
+		Duration:                time.Now().Sub(s.startTime),
+		DatagramsSent:           s.datagramsSent,
+		DatagramsAcked:          s.datagramsAcked,
+	}
+}
+
 func (s *sender) abort(err error) error {
 	if s.conn == nil {
 		return nil
 	}
+	if s.hook != nil {
+		s.hook.OnFailure(s.buildTransferStats(), err)
+	}
 	n := packERROR(s.send, 1, err.Error())
-	_, err = s.conn.WriteToUDP(s.send[:n], s.addr)
+	err = s.conn.sendTo(s.send[:n], s.addr)
 	if err != nil {
 		return err
 	}
-	s.conn.Close()
+	s.conn.close()
 	s.conn = nil
 	return nil
 }
